@@ -1,0 +1,130 @@
+---
+title: "Parking Meter Data Exploration"
+author: "Ijeamaka Anyene"
+date: "3/15/2020"
+output: html_document
+---
+
+```{r packages}
+library(dplyr)
+library(ggplot2)
+library(sp)
+```
+
+```{r data}
+parking_meter_usage_20191101 = readr::read_csv(here::here("data",
+"20191101_20200312_SFMTA_Parking_Meter_Detailed_Revenue_Transactions.csv"))
+parking_meter_usage_20200313 = readr::read_csv(here::here("data",
+"20200313_20200315_SFMTA_Parking_Meter_Detailed_Revenue_Transactions.csv"))
+
+parking_meter_location = readr::read_csv(here::here("data",
+                                                    "Parking_Meters.csv"))
+
+
+# Loading GeoJSON of SF neighborhoods
+sf_neighborhoods = rgdal::readOGR(here::here("data", "Analysis Neighborhoods.geojson"))
+
+```
+
+```{r}
+parking_meter_usage = rbind(parking_meter_usage_20191101, 
+                            parking_meter_usage_20200313)
+```
+
+## Q1: How complete is this data? What is the level of missingness?
+Are all the POSTIDs within both dataframes?
+```{r missing postids}
+usage_post_id = unique(parking_meter_usage$POST_ID)
+location_post_id = unique(parking_meter_location$POST_ID)  
+
+length(usage_post_id) - sum(usage_post_id %in% location_post_id)
+# 212 post IDs in usage DF but not in location DF
+
+length(location_post_id) - sum(location_post_id %in% usage_post_id)
+# 6624 post IDs in location DF but not in usage 
+```
+
+Are there particular areas where the POSTIDs are missing?
+```{r missing maps}
+missing_parking_meters = parking_meter_location %>%
+  mutate(missing = if_else(POST_ID %in% usage_post_id, "No", "Yes")) %>%
+  filter(is.na(LONGITUDE) == FALSE & is.na(LATITUDE) == FALSE)
+
+# Quick Map - There is definitely concentrations of missing parking meters
+# in FIDI and possibly where Mission Bay meets SOMA meets the Mission?
+ggplot(missing_parking_meters, aes(x = LATITUDE, y = LONGITUDE, colour = missing)) +
+  geom_point(size = 0.5)
+
+```
+
+```{r missing longitude}
+# Confirmed that this concentration is not due to missing longitude information
+sum(is.na(parking_meter_location$LONGITUDE))
+```
+
+## Q2: Has there been any high level trends?
+
+```{r joins}
+# Joining location and transaction data
+colnames_usage = colnames(parking_meter_usage)
+parking_meter_combined = left_join(parking_meter_usage, parking_meter_location,
+                                   by = c("POST_ID" = "POST_ID")) %>%
+  select(all_of(colnames_usage), OBJECTID, JURISDICTION, LONGITUDE, LATITUDE)
+
+# Pulling out date without HMS
+parking_meter_combined = parking_meter_combined %>%
+  mutate(start_date_new = lubridate::date(SESSION_START_DT))
+```
+
+For each day - what are the trends in usage and amount received
+```{r}
+avg_parking_day = parking_meter_combined %>%
+  group_by(start_date_new) %>%
+  summarise(avg_gross_paid_amt = mean(GROSS_PAID_AMT, na.rm = TRUE),
+            unique_parking_meters = n_distinct(POST_ID))
+```
+
+```{r}
+ggplot(avg_parking_day, aes(x = start_date_new, y = avg_gross_paid_amt)) +
+  geom_line() +
+  labs(title = "Average gross paid amount for parking meters per day")
+
+ggplot(avg_parking_day, aes(x = start_date_new, y = unique_parking_meters)) +
+  geom_line() +
+  labs(title = "Number of unique parking at parking meters per day")
+```
+
+SO! There's an interesting trend where on each sunday the cost to park goes up - and less people park. Will remove all sunday dates in the following graphs. Also removing the dates of Christmas, Thanksgiving, and New Years Day where Parking Meters are not enforced. 
+
+```{r}
+avg_parking_day = avg_parking_day %>%
+  mutate(week_start_date = lubridate::week(start_date_new),
+         week_start_date = if_else(week_start_date < 44, week_start_date+53, week_start_date)) %>%
+  mutate(day_start_date = lubridate::wday(start_date_new))
+
+```
+
+For each week - what are the trends in usage and amount received?
+```{r}
+avg_parking_day %>%
+  filter(day_start_date  != 1,
+         start_date_new != "2019-11-28",
+         start_date_new != "2019-12-25",
+         start_date_new != "2020-01-01") %>%
+  ggplot(., aes(x = start_date_new, y = avg_gross_paid_amt)) +
+  geom_line() +
+  labs(title = "Average gross paid amount for parking meters per day (excluding Sundays)") +
+  geom_smooth(method = "loess")
+
+avg_parking_day %>%
+  filter(day_start_date  != 1,
+         start_date_new != "2019-11-28",
+         start_date_new != "2019-12-25",
+         start_date_new != "2020-01-01") %>%
+  ggplot(., aes(x = start_date_new, y = unique_parking_meters)) +
+  geom_line() +
+  labs(title = "Number of unique parking at parking meters per day (excluding Sundays)") +
+  geom_smooth(method = "loess")
+
+
+```
