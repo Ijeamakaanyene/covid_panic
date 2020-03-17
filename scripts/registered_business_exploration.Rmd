@@ -1,0 +1,127 @@
+---
+title: "registered business_exploration"
+author: "Ijeamaka Anyene"
+date: "3/16/2020"
+output: html_document
+---
+
+```{r packages}
+library(dplyr)
+library(ggplot2)
+library(sp)
+library(janitor)
+library(leaflet)
+```
+
+```{r data}
+registered_business = readr::read_csv(here::here("Data", "Registered_Business_Locations_-_San_Francisco.csv"))
+
+```
+
+## Preliminary Data Cleaning
+```{r}
+glimpse(registered_business)
+```
+
+```{r}
+# Changes column names to snakecase and removes any empty rows
+clean_business = registered_business %>%
+  clean_names() %>%
+  remove_empty("rows")
+```
+
+
+## Q1: How complete is this data?
+
+Checking out business end date and location end data
+```{r}
+clean_business = clean_business %>%
+  mutate(business_end_date = lubridate::mdy(business_end_date),
+         location_end_date = lubridate::mdy(location_end_date),
+         business_start_date = lubridate::mdy(business_start_date),
+         location_start_date = lubridate::mdy(location_start_date))
+```
+
+```{r}
+clean_business %>%
+  filter(is.na(business_end_date) == FALSE,
+         is.na(location_end_date) == FALSE) %>%
+  summarise(max_business = max(business_end_date),
+            max_location = max(location_end_date))
+# Most recent end date is 3/14/2020
+```
+
+Realized there is actually a ton of NAs and those are the businesses that are open! Lets quantify
+```{r}
+clean_business %>%
+  filter(is.na(business_end_date) == TRUE) %>%
+  nrow()
+
+# 153,372 businessed without a business end date
+```
+
+```{r}
+clean_business %>%
+  filter(is.na(location_end_date) == TRUE) %>%
+  nrow()
+
+# 127,707 business without a location end date - should go with this one! 
+```
+
+```{r}
+open_business = clean_business %>%
+  filter(is.na(location_end_date) == TRUE)
+```
+
+Review missingness now limited to open businesses
+```{r}
+colSums(is.na(open_business) == TRUE)
+```
+
+We will have limited ability to determine types of businesses disproportionately impacted because NAICS classifier has a large percentage missing 
+```{r}
+# NAICS is 20% missing
+sum(is.na(open_business$naics_code)) / nrow(open_business)
+
+# LIC code is 88.9% missing
+sum(is.na(open_business$lic_code)) / nrow(open_business)
+
+# Business Locaton is 46% missing 
+sum(is.na(open_business$business_location)) / nrow(open_business)
+
+# But street address is .00078% missing
+sum(is.na(open_business$street_address)) / nrow(open_business) * 100
+```
+
+
+## Q1: Location of businesses
+```{r}
+split = stringr::str_split(open_business$business_location, "\\s", simplify = TRUE)
+
+split = as.data.frame(split) %>%
+  magrittr::set_colnames(c("init", "latitude", "longitude")) %>%
+  mutate(latitude = as.numeric(stringr::str_remove_all(latitude, "\\(")),
+         longitude = as.numeric(stringr::str_remove_all(longitude, "\\)")))
+```
+
+```{r}
+open_business = open_business %>%
+  mutate(latitude = split$latitude,
+         longitude = split$longitude)
+
+```
+
+Unfortunately this is one hundred percent a map of the United States. Which means that we should not trust long/lat coordinates and will need to geocode all addresses. 
+```{r}
+ggplot(open_business, aes(x = latitude, y = longitude)) +
+  geom_point()
+
+```
+
+
+The google maps API allows you to geocode 2,500 addresses a day so
+```{r}
+nrow(open_business) / (2500 * 4)
+```
+
+It will take us approximately 13 days to geocode all the addresses. 
