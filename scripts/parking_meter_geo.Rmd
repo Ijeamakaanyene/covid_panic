@@ -1,0 +1,200 @@
+---
+title: "Untitled"
+author: "Ijeamaka Anyene"
+date: "3/31/2020"
+output: html_document
+---
+
+```{r}
+library(sp)
+library(sf)
+library(raster)
+library(rgdal)
+library(dplyr)
+```
+
+```{r}
+sf_neighborhoods = st_read(here::here("shapefiles", "Analysis Neighborhoods - 2010 census tracts assigned to neighborhoods.geojson"))
+
+sf_zipcodes = st_read(here::here("shapefiles", "Bay Area ZIP Codes.geojson"))
+```
+
+```{r}
+pm_locations = readr::read_csv(here::here("data", "Parking_Meter",
+                                          "Parking_Meters.csv"))
+```
+
+```{r}
+sf_pm_locations = st_as_sf(pm_locations, coords = c("LONGITUDE", "LATITUDE"),
+                           crs = st_crs(sf_neighborhoods))
+```
+
+```{r}
+# Checking that they overlay
+plot(st_geometry(sf_neighborhoods))
+plot(sf_pm_locations, add = TRUE)
+```
+
+```{r}
+st_crs(sf_neighborhoods)
+st_crs(sf_zipcodes)
+st_crs(sf_pm_locations)
+```
+
+
+```{r}
+neighborhoods_zips_pm = st_join(sf_pm_locations, sf_neighborhoods) %>%
+  st_join(., sf_zipcodes)
+```
+
+```{r}
+final_neighborhoods_zips_pm = neighborhoods_zips_pm %>%
+  select(OBJECTID, PARKING_SPACE_ID, POST_ID, nhood, zip)
+```
+
+```{r}
+plot(final_neighborhoods_zips_pm)
+```
+
+```{r}
+rm(neighborhoods_zips_pm, pm_locations, 
+   sf_neighborhoods, sf_pm_locations,
+   sf_zipcodes)
+```
+
+```{r}
+readr::write_csv(final_neighborhoods_zips_pm, here::here("data", 
+                                                         "exported_data",
+                                                         "parking_meters_neighborhoods_zipcodes.csv"))
+```
+
+
+```{r}
+pm_2017 = readr::read_csv(here::here("data", "Parking_Meter",                             "20171101_20180331_SFMTA_Parking_Meter_Detailed_Revenue_Transactions.csv"))
+```
+
+```{r}
+pm_2017_joined = left_join(pm_2017, final_neighborhoods_zips_pm,
+                           by = c("POST_ID"="POST_ID"))
+
+```
+
+```{r}
+head(pm_2017_joined)
+```
+
+```{r}
+pm_2017_joined = pm_2017_joined %>%
+  mutate(start_date_new = lubridate::date(SESSION_START_DT),
+         end_date_new = lubridate::date(SESSION_END_DT))
+
+```
+
+```{r}
+neighborhood_2017_grouped = pm_2017_joined %>%
+  group_by(start_date_new, nhood) %>%
+  summarise(num_parking_meters = n())
+  
+
+zipcode_2017_grouped = pm_2017_joined %>%
+  group_by(start_date_new, zip) %>%
+  summarise(num_parking_meters = n())
+```
+
+```{r}
+rm(pm_2017, pm_2017_joined)
+```
+
+```{r}
+pm_2018 = readr::read_csv(here::here("data", "Parking_Meter",                         "20181101_20190331_SFMTA_Parking_Meter_Detailed_Revenue_Transactions.csv"))
+```
+
+```{r}
+pm_2018_joined = left_join(pm_2018, final_neighborhoods_zips_pm,
+                           by = c("POST_ID"="POST_ID"))
+
+```
+
+```{r}
+pm_2018_joined = pm_2018_joined %>%
+  mutate(start_date_new = lubridate::date(SESSION_START_DT),
+         end_date_new = lubridate::date(SESSION_END_DT))
+
+```
+
+```{r}
+neighborhood_2018_grouped = pm_2018_joined %>%
+  group_by(start_date_new, nhood) %>%
+  summarise(num_parking_meters = n())
+  
+
+zipcode_2018_grouped = pm_2018_joined %>%
+  group_by(start_date_new, zip) %>%
+  summarise(num_parking_meters = n())
+```
+
+```{r}
+rm(pm_2018, pm_2018_joined)
+```
+
+```{r}
+pm_2019 = readr::read_csv(here::here("data", "Parking_Meter", "20191101_20200330_SFMTA_Parking_Meter_Detailed_Revenue_Transactions.csv"))
+```
+
+```{r}
+pm_2019_joined = left_join(pm_2019, final_neighborhoods_zips_pm,
+                           by = c("POST_ID"="POST_ID"))
+
+```
+
+```{r}
+pm_2019_joined = pm_2019_joined %>%
+  mutate(start_date_new = lubridate::date(SESSION_START_DT),
+         end_date_new = lubridate::date(SESSION_END_DT))
+
+```
+
+```{r}
+neighborhood_2019_grouped = pm_2019_joined %>%
+  group_by(start_date_new, nhood) %>%
+  summarise(num_parking_meters = n())
+  
+
+zipcode_2019_grouped = pm_2019_joined %>%
+  group_by(start_date_new, zip) %>%
+  summarise(num_parking_meters = n())
+```
+
+```{r}
+rm(pm_2019, pm_2019_joined)
+```
+
+
+```{r}
+zipcode_total_parkingmeters = bind_rows(zipcode_2019_grouped,
+                                        zipcode_2018_grouped,
+                                        zipcode_2017_grouped) %>%
+  mutate(wday = lubridate::wday(start_date_new)) %>%
+  filter(wday != 1)
+
+readr::write_csv(zipcode_total_parkingmeters,
+                 here::here("data", "exported_data", "total_zips_parking_meter.csv"))
+```
+
+```{r}
+nhood_total_parkingmeters = bind_rows(neighborhood_2019_grouped,
+                                      neighborhood_2018_grouped,
+                                      neighborhood_2017_grouped) %>%
+  mutate(wday = lubridate::wday(start_date_new)) %>%
+  filter(wday != 1)
+
+readr::write_csv(nhood_total_parkingmeters,
+                 here::here("data", "exported_data", "total_nhood_parking_meter.csv"))
+```
+
+
+
+
+
+
+
