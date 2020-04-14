@@ -1,0 +1,249 @@
+---
+title: "Parking Meter Data Visualization"
+author: "Ijeamaka Anyene"
+date: "4/6/2020"
+output: html_document
+---
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(gghighlight)
+library(ggtext)
+```
+
+```{r}
+total_nhood_parking_meter =
+  readr::read_csv(here::here("data", "exported_data",
+                           "total_nhood_parking_meter_2019_2020.csv"))
+
+change_nhood_parking_meter = 
+  readr::read_csv(here::here("data", "exported_data",
+                             "change_in_neighborhood_unique_parking.csv"))
+```
+
+```{r}
+total_nhood_parking_meter = total_nhood_parking_meter %>%
+  mutate(week = lubridate::week(start_date_new)) %>%
+  mutate(month = lubridate::month(start_date_new)) %>%
+  mutate(year = lubridate::year(start_date_new))
+```
+
+```{r}
+available_nhood_parking = change_nhood_parking_meter %>%
+  dplyr::select(nhood, year_2019) %>%
+  pivot_longer(cols = c(year_2019),
+               names_to = "year",
+               values_to = "avail_parking_meters") %>%
+  mutate(year = as.numeric(stringr::str_remove_all(year, "year_")))
+  
+```
+
+```{r}
+expand_avail_nhood = available_nhood_parking %>%
+  filter(year == 2019) %>%
+  mutate(year = 2020)
+
+```
+
+```{r}
+available_nhood_parking = bind_rows(available_nhood_parking,
+                                    expand_avail_nhood)
+```
+
+```{r}
+holidays = c("2019-12-25", "2018-12-25", "2017-12-25",
+                               "2019-11-28", "2018-11-22", "2017-11-22",
+                               "2020-01-01", "2019-01-01", "2018-01-01")
+holidays = sapply(holidays, lubridate::ymd)
+
+```
+
+```{r}
+utilization_parking_meters = left_join(total_nhood_parking_meter, available_nhood_parking, 
+                                       by = c("nhood" = "nhood", "year" = "year")) %>%
+  mutate(utilization = num_parking_meters / avail_parking_meters) %>%
+  filter(is.na(nhood) == FALSE) %>%
+  filter(!(start_date_new %in% holidays))
+```
+
+
+Periods:
+Period 1: Jan 1st to February 29th (Week 9)
+Period 2: March 1st to March 16th (Week 11)
+Period 3: March 17th to March 31st 
+
+```{r}
+periods = 
+  tibble(periods = c("Period 1", "Period 2", "Period 3"),
+         x_axis = c(as.Date.character("2020-02-01"), 
+                    as.Date.character("2020-03-07"), 
+                    as.Date.character("2020-03-23")),
+         y_axis = c(7.5, 7.5, 7.5))
+
+```
+
+```{r}
+palettes_selected = rcartocolor::carto_pal(n = 12, name = "Antique")
+palettes_selected = palettes_selected[c(1, 11, 2:5)]
+```
+
+```{r}
+current_parking_meters_viz = utilization_parking_meters %>%
+  filter(start_date_new >= "2020-01-01") %>%
+  filter(nhood %in% c("Chinatown", "Japantown",
+                      "Inner Sunset", "Mission", 
+                      "Marina", "Hayes Valley")) %>%
+  mutate(nhood = forcats::fct_relevel(nhood, 
+                                      c("Chinatown", "Japantown", 
+                                        "Inner Sunset", "Mission", 
+                                        "Marina", "Hayes Valley"))) %>%
+  ggplot(.) +
+  geom_line(aes(x = start_date_new,
+                y = utilization, 
+                colour = nhood),
+            size = 0.75) +
+  geom_richtext(data = periods, aes(x = x_axis, y = y_axis, label = periods),
+                size = 8,
+                fill = NA,
+                label.color = NA,
+                hjust = 0.5) +
+  geom_segment(aes(xend = as.Date.character("2020-02-29"),
+                   x = as.Date.character("2020-02-29"), 
+                   yend = 8, y = 0),
+               color = "black",
+               linetype = "dashed",
+               size = 0.5) +
+  geom_segment(aes(xend = as.Date.character("2020-03-16"),
+                   x = as.Date.character("2020-03-16"), 
+                   yend = 8, y = 0),
+               color = "black",
+               linetype = "dashed",
+               size = 0.5) +
+  scale_color_manual(values = palettes_selected) + 
+  labs(y = "Parking Meter Utilization Rate", 
+       x = NULL,
+       colour = "San Francisco\n Neighborhoods") +
+  guides(colour = guide_legend(nrow = 2,
+                               override.aes = list(size = 12),
+                               byrow = TRUE)) +
+  theme(text = element_text(family = "sans"),
+    axis.title = element_text(size = 20),
+        axis.text = element_text(size = 18),
+        axis.ticks.x = element_blank(),
+        axis.line.y = element_line(),
+        axis.line.x = element_line(),
+        legend.position = "bottom",
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 14),
+        legend.background = element_blank(),
+        legend.key = element_blank(),
+        panel.background = element_blank(),
+        panel.grid.major.x = element_line(colour = "#f1f1f1", linetype = "solid"))
+  
+current_parking_meters_viz
+```
+
+```{r}
+ggsave(here::here("visualizations", "current_parking_meters_viz_v3.png"),
+       current_parking_meters_viz,
+       width = 15, height = 9)
+```
+
+
+```{r}
+deltas_nhood_prediction = readr::read_csv(here::here(
+  "data", "exported_data", "final_output_6nhoods.csv"
+))
+```
+
+```{r}
+updated_deltas = deltas_nhood_prediction %>%
+  mutate(nhood_type = case_when(
+    nhood_type == "asian" ~ "Asian Neighborhoods",
+    nhood_type == "comparison" ~ "Comparison Neighborhoods",
+  ),
+  period = case_when(
+    period == "p1" ~ "Period 1",
+    period == "p2" ~ "Period 2",
+    period == "p3" ~ "Period 3"
+  ))
+
+```
+
+```{r}
+palettes_selected_2 = rcartocolor::carto_pal(n = 12, name = "Antique")
+palettes_selected_2 = palettes_selected_2[c(3, 5)]
+```
+
+```{r}
+test_statistics = 
+  tibble(period = c("Period 1", "Period 2", "Period 3"),
+         labels = c("ANOVA Test Results:<br>
+         F-Statistic = 56.30<br>
+                    p-value = <.05",
+                    "ANOVA Test Results:<br>
+                    F-Statistic = 18.55<br>
+                    p-value = <.05",
+                    "ANOVA Test Results:<br>
+                    F-Statistic = 1.676<br>
+                    p-value = 0.200"),
+         f_stat = c(56.30, 18.55, 1.676),
+         p_value = c("<.05", "<.05", "0.200"),
+         x = c(-0.6, -0.6, -0.6),
+         y = c(6, 6, 6)
+  )
+
+```
+
+
+```{r}
+histogram_deltas_visualization = updated_deltas %>%
+  ggplot(.) +
+  geom_density(aes(x = delta_yhat_norm, 
+                colour = nhood_type,
+                fill = nhood_type),
+               alpha = 0.4) +
+  scale_color_manual(values = palettes_selected_2) +
+  scale_fill_manual(values = palettes_selected_2) +
+  facet_wrap(~period, nrow = 3) +
+  geom_richtext(data = test_statistics, 
+                aes(x = x, y = y, label = labels),
+                size = 5) +
+  labs(x = "Normalized Delta between Predicted and Actual Parking",
+       y = NULL, 
+       colour = NULL,
+       fill = NULL) +
+  theme(
+    text = element_text(family = "sans"),
+    axis.title = element_text(size = 16),
+    axis.text = element_text(size = 16),
+    axis.ticks.x = element_blank(),
+    axis.line.y = element_line(),
+    axis.line.x = element_line(),
+    legend.position = "bottom",
+    legend.text = element_text(size = 14),
+    legend.title = element_text(size = 14),
+    legend.background = element_blank(),
+    legend.key = element_blank(),
+    panel.background = element_blank(),
+    strip.text = element_text(size = 14)
+    #strip.background = element_rect(fill = "#7C7C7C")
+    #panel.grid.major.x = element_line(colour = "#f1f1f1", linetype = "solid")
+    
+  )
+
+histogram_deltas_visualization
+
+```
+
+
+```{r}
+ggsave(here::here("visualizations", "histogram_deltas_visualization_v1.png"),
+       histogram_deltas_visualization,
+       width = 12, height = 9)
+```
+
+
+
